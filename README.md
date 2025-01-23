@@ -87,6 +87,84 @@ If we would want to ditch the mentioned resources, we need to find an alternativ
 1- Use Internal Production Database in the internal account as a centralized ?
 2- Somehow give bastion host internet access through TGW?
 
+## ClickUp Task Describing the process
+
+This guide outlines the steps to connect multiple accounts' networks (i.e., VPCs) using a **Transit Gateway (TGW)**, ensuring connectivity between an internal account and production accounts. The configuration allows seamless access to production databases and data from the internal account.
+
+### 1. **Transit Gateway (TGW) Setup**
+- **Create Transit Gateway**: This is done once from the internal account.
+- **Share Transit Gateway with the Organization**:
+  - Ensure all production accounts are part of the AWS Organization.
+  - Enable **auto-accept resources** so that new accounts added to the organization automatically accept the shared TGW resource.
+
+### 2. **Transit Gateway Attachments**
+- **Create TGW Attachments**:
+  - From the production account, create a TGW attachment to the shared TGW.
+  - The attachment should associate **private subnets** (not public subnets).
+  - A pending request will appear in the internal account under **VPC > Transit Gateway Attachments**.
+- **Accept the Pending Request**: Approve the TGW attachment request in the internal account.
+
+### 3. **Internal VPC Modifications**
+- **Public Route Table**:
+  - Add the following route:
+    - **Destination**: Production account CIDR block (e.g., `10.0.0.0/16`).
+    - **Target**: Transit Gateway (e.g., `tgw-055e96e17b529b40d`).
+  - Ensure the rest of the traffic forwards to an IGW (Internet Gateway).
+- **Private Route Table**:
+  - Ensure traffic forwards to an NGW (NAT Gateway).
+
+### 4. **Create VPC in Production Account**
+- Include at least 2 Availability Zones (AZs).
+- Include **2 public subnets** and **2 private subnets**.
+- Add a **VPC S3 Endpoint**.
+
+### 5. **Create VPC Secrets Manager Endpoint in Production Account**
+- Navigate to **VPC > Endpoints > Create Endpoint**.
+- When creating the endpoint, ensure it is associated with the VPC's **private subnets**.
+
+### 6. **Production VPC Modifications**
+- **Private Route Tables**: Forward traffic to the Transit Gateway:
+  - **Destination**: `0.0.0.0/0`
+  - **Target**: Transit Gateway
+- **Public Route Tables**: Forward traffic to the Transit Gateway:
+  - **Destination**: `0.0.0.0/0`
+  - **Target**: Transit Gateway.
+
+### 7. **Transit Gateway Route Table**
+- Add a route to the production account:
+  - **CIDR**: CIDR block of the production account VPC.
+  - **Attachment ID**: Select the TGW attachment from the production account VPC.
+
+### 8. **Grant QueryCDI Permissions**
+- Ensure the **QueryCDI** Lambda function in the internal account has permissions to access the following resources in the production account:
+  - **IAM**, **S3**, **RDS**, **KMS**, and **Secrets Manager**.
+- **Create Role in Production Account**:
+  - Create the role `arn:aws:iam::ACCOUNT-NUMBER:role/CustomerDataIngestion-Development-Access`.
+  - Use an existing production account as a template:
+    - Navigate to **IAM > Roles > CustomerDataIngestion-Development-Access**.
+    - Replicate the role in the new production account.
+
+### 9. **Modify QueryCDI**
+- Update the Lambda function to accept the airport name as a parameter.
+- Based on the parameter:
+  - Select the production account.
+  - Assume the role defined above.
+  - Retrieve the secret to access the RDS from the production account.
+
+### 10. **Modify Security Groups**
+- Allow traffic between:
+  - **Lambda in the internal account**.
+  - **RDS in the production account**.
+
+## Deliverables
+- Shared network and access between internal and production accounts.
+
+## Optional Enhancements
+- Fine-grained permissions for:
+  - Security groups traffic.
+  - Route tables.
+
+
 ## 🔍 References
 References that will be helpful as general knowledge, or implementation guides for either method:
 
